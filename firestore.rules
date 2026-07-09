@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    match /invitations/{code} {
+      allow read, write: if request.auth != null && (
+        (resource == null && request.resource.data.ownerId == request.auth.uid) ||
+        (resource != null && resource.data.ownerId == request.auth.uid)
+      );
+      allow get: if true;
+    }
+
+    match /guestAccess/{guestUid} {
+      allow read: if request.auth != null && (request.auth.uid == guestUid || request.auth.uid == resource.data.ownerId);
+      allow create: if request.auth != null && request.auth.uid == guestUid 
+                    && exists(/databases/$(database)/documents/invitations/$(request.resource.data.code))
+                    && get(/databases/$(database)/documents/invitations/$(request.resource.data.code)).data.ownerId == request.resource.data.ownerId
+                    && get(/databases/$(database)/documents/invitations/$(request.resource.data.code)).data.permission == request.resource.data.permission;
+      allow update: if false;
+      allow delete: if request.auth != null && (request.auth.uid == guestUid || request.auth.uid == resource.data.ownerId);
+    }
+
+    match /users/{userId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == userId 
+        || (
+          exists(/databases/$(database)/documents/guestAccess/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/guestAccess/$(request.auth.uid)).data.ownerId == userId
+        )
+      );
+      allow write: if request.auth != null && request.auth.uid == userId;
+      
+      match /{document=**} {
+        allow read: if request.auth != null && (
+          request.auth.uid == userId 
+          || (
+            exists(/databases/$(database)/documents/guestAccess/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/guestAccess/$(request.auth.uid)).data.ownerId == userId
+          )
+        );
+        allow write: if request.auth != null && (
+          request.auth.uid == userId 
+          || (
+            exists(/databases/$(database)/documents/guestAccess/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/guestAccess/$(request.auth.uid)).data.ownerId == userId &&
+            get(/databases/$(database)/documents/guestAccess/$(request.auth.uid)).data.permission == 'edit'
+          )
+        );
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "FinTrack",
+  "description": "App para gerenciar gastos, contas e metas financeiras.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
