@@ -117,10 +117,12 @@ export default function Layout() {
               className="w-10 h-10 rounded-full ring-2 ring-white/30"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate">{user?.displayName || 'Usuário'}</p>
+              <p className="text-sm font-semibold truncate">
+                {user?.displayName || user?.email?.split('@')[0] || 'Usuário'}
+              </p>
               {isLocalMode && <p className="text-[11px] text-orange-300 font-medium">Modo local</p>}
               {isGuest && (
-                <p className="text-[11px] text-orange-300 font-medium">
+                <p className="text-[11px] text-orange-300 font-medium leading-snug">
                   Convidado · {permission === 'edit' ? 'pode editar' : 'só visualização'}
                 </p>
               )}
@@ -148,14 +150,21 @@ export default function Layout() {
         >
           <Menu size={22} />
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-white"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
             style={{ background: theme.primaryColor }}
           >
             <Wallet size={16} />
           </div>
-          <span className="font-bold">{pageTitle}</span>
+          <div className="min-w-0">
+            <span className="font-bold block truncate">{pageTitle}</span>
+            {isGuest && user?.displayName && (
+              <span className="text-[10px] text-orange-500 font-medium truncate block">
+                {user.displayName}
+              </span>
+            )}
+          </div>
         </div>
         <button
           onClick={() => setTheme({ isDarkMode: !theme.isDarkMode })}

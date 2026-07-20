@@ -1,5 +1,5 @@
 import { useAuth } from '../contexts/AuthContext';
-import { LogIn, Key, Monitor, Mail, ArrowRight, Wallet } from 'lucide-react';
+import { LogIn, Key, Monitor, Mail, ArrowRight, Wallet, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import React, { useState } from 'react';
 
@@ -9,19 +9,19 @@ function mapAuthError(err: { code?: string; message?: string; status?: number },
     return 'Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no .env / Netlify.';
   }
   if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials')) {
-    return 'E-mail ou senha incorretos.';
+    return 'Usuário/e-mail ou senha incorretos.';
   }
   if (msg.includes('user already registered') || msg.includes('already been registered')) {
-    return 'Este e-mail já está em uso. Tente fazer login.';
+    return 'Este e-mail/usuário já está em uso. Tente fazer login.';
   }
   if (msg.includes('email not confirmed')) {
-    return 'Confirme seu e-mail antes de entrar (verifique a caixa de entrada).';
+    return 'Confirme o e-mail antes de entrar, ou desative “Confirm email” no Supabase (Providers → Email).';
   }
   if (msg.includes('provider is not enabled') || msg.includes('unsupported provider')) {
     return 'Este provedor não está ativo no Supabase (Authentication → Providers).';
   }
   if (msg.includes('anonymous')) {
-    return 'Login anônimo desativado. Ative Anonymous no Supabase ou use e-mail.';
+    return 'Use o cadastro de convidado com nome e senha.';
   }
   return fallback + (err.message ? ` (${err.message})` : '');
 }
@@ -32,7 +32,8 @@ export default function Login() {
     signInWithApple,
     signInWithEmail,
     signUpWithEmail,
-    signInAsGuest,
+    signUpAsGuest,
+    signInAsGuestAccount,
     acceptInviteCode,
     signInLocal,
     authError,
@@ -42,9 +43,16 @@ export default function Login() {
   const [showForm, setShowForm] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [isGuestMode, setIsGuestMode] = useState(false);
+  /** false = cadastro convidado | true = login convidado já existente */
+  const [guestHasAccount, setGuestHasAccount] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [ownerDisplayName, setOwnerDisplayName] = useState('');
   const [guestCode, setGuestCode] = useState('');
+  const [guestName, setGuestName] = useState('');
+  const [guestUsername, setGuestUsername] = useState('');
+  const [guestPassword, setGuestPassword] = useState('');
+  const [guestLoginHint, setGuestLoginHint] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -58,6 +66,7 @@ export default function Login() {
       setShowForm(true);
       setIsGuestMode(true);
       setGuestCode(invite);
+      setGuestHasAccount(false);
     }
   }, []);
 
@@ -103,23 +112,58 @@ export default function Login() {
 
   const handleGuestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = guestCode.replace(/\D/g, '');
-    if (clean.length !== 6) {
-      setError('Por favor, insira um código de 6 dígitos válido.');
-      return;
-    }
     setError('');
+    setGuestLoginHint('');
     setLoading(true);
+
     try {
-      // Se já está logado com e-mail, só vincula o convite (não cria anônimo)
-      if (user && user.email && !user.email.includes('local@')) {
-        await acceptInviteCode(clean);
-      } else {
-        await signInAsGuest(clean);
+      if (guestHasAccount) {
+        // Login de convidado já cadastrado
+        if (!guestUsername.trim() || !guestPassword) {
+          setError('Informe usuário e senha.');
+          return;
+        }
+        await signInAsGuestAccount(guestUsername, guestPassword);
+        return;
       }
+
+      // Cadastro de convidado
+      const clean = guestCode.replace(/\D/g, '');
+      if (clean.length !== 6) {
+        setError('Informe o código de convite com 6 dígitos.');
+        return;
+      }
+      if (!guestName.trim()) {
+        setError('Informe seu nome.');
+        return;
+      }
+      if (!guestUsername.trim()) {
+        setError('Informe um usuário (ou e-mail) para login.');
+        return;
+      }
+      if (guestPassword.length < 6) {
+        setError('A senha deve ter pelo menos 6 caracteres.');
+        return;
+      }
+
+      // Se já está logado como dono e só quer vincular — raramente usado aqui
+      if (user && user.email && !user.email.includes('local@') && !user.email.includes('guest.mycontas')) {
+        await acceptInviteCode(clean);
+        return;
+      }
+
+      const { loginEmail } = await signUpAsGuest({
+        name: guestName,
+        usernameOrEmail: guestUsername,
+        password: guestPassword,
+        inviteCode: clean,
+      });
+      setGuestLoginHint(
+        `Cadastro ok! Seu login é: ${loginEmail}. Guarde usuário e senha para entrar de novo.`
+      );
     } catch (err: unknown) {
       console.error(err);
-      setError(err instanceof Error ? err.message : 'Código inválido. Tente novamente.');
+      setError(err instanceof Error ? err.message : 'Não foi possível entrar como convidado.');
     } finally {
       setLoading(false);
     }
@@ -131,7 +175,7 @@ export default function Login() {
     setLoading(true);
     try {
       if (isLogin) await signInWithEmail(email, password);
-      else await signUpWithEmail(email, password);
+      else await signUpWithEmail(email, password, ownerDisplayName.trim() || undefined);
     } catch (err: any) {
       console.error(err);
       const msg = (err?.message || '').toLowerCase();
@@ -245,7 +289,9 @@ export default function Login() {
         <h1 className="text-2xl font-bold text-center text-[#1e1b4b] mb-1">FinTrack</h1>
         <p className="text-center text-slate-400 text-sm mb-6">
           {isGuestMode
-            ? 'Acesse o aplicativo compartilhado'
+            ? guestHasAccount
+              ? 'Entre com seu usuário de convidado'
+              : 'Cadastre-se como convidado'
             : isLogin
               ? 'Faça login para continuar'
               : 'Crie sua conta para começar'}
@@ -254,6 +300,11 @@ export default function Login() {
         {error && (
           <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-2xl text-sm border border-red-100">
             {error}
+          </div>
+        )}
+        {guestLoginHint && (
+          <div className="mb-4 p-3 bg-emerald-50 text-emerald-700 rounded-2xl text-sm border border-emerald-100">
+            {guestLoginHint}
           </div>
         )}
 
@@ -267,49 +318,140 @@ export default function Login() {
               onSubmit={handleGuestSubmit}
               className="space-y-4"
             >
+              <div className="flex p-1 rounded-full bg-slate-100 mb-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuestHasAccount(false);
+                    setError('');
+                  }}
+                  className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${
+                    !guestHasAccount ? 'bg-white shadow text-[#5b4cdb]' : 'text-slate-500'
+                  }`}
+                >
+                  Criar conta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuestHasAccount(true);
+                    setError('');
+                  }}
+                  className={`flex-1 py-2 rounded-full text-sm font-semibold transition-all ${
+                    guestHasAccount ? 'bg-white shadow text-[#5b4cdb]' : 'text-slate-500'
+                  }`}
+                >
+                  Já tenho conta
+                </button>
+              </div>
+
               <p className="text-sm text-slate-500 text-left">
-                Digite o código de 6 dígitos gerado pelo dono da conta. Várias pessoas podem usar o
-                mesmo código. A permissão (só ver ou editar) é definida por quem convidou.
+                {guestHasAccount
+                  ? 'Use o usuário e a senha que você cadastrou como convidado.'
+                  : 'Informe o código do convite, seu nome e crie um usuário e senha. Seu nome aparece no app quando estiver logado.'}
               </p>
+
+              {!guestHasAccount && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                    Código do convite
+                  </label>
+                  <div className="relative">
+                    <Key size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      required
+                      maxLength={6}
+                      value={guestCode}
+                      onChange={(e) => setGuestCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="finance-input w-full pl-11 text-center text-2xl tracking-[0.35em] font-mono"
+                      placeholder="123456"
+                      autoComplete="one-time-code"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {!guestHasAccount && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                    Seu nome (como aparece no app)
+                  </label>
+                  <div className="relative">
+                    <User size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      value={guestName}
+                      onChange={(e) => setGuestName(e.target.value)}
+                      className="finance-input w-full pl-11"
+                      placeholder="Ex: Maria Silva"
+                      autoComplete="name"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  Código do Convite
+                  {guestHasAccount ? 'Usuário ou e-mail' : 'Usuário (login)'}
                 </label>
                 <div className="relative">
-                  <Key size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
-                    inputMode="numeric"
                     required
-                    maxLength={6}
-                    value={guestCode}
-                    onChange={(e) => setGuestCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="finance-input w-full pl-11 text-center text-2xl tracking-[0.35em] font-mono"
-                    placeholder="123456"
-                    autoComplete="one-time-code"
+                    value={guestUsername}
+                    onChange={(e) => setGuestUsername(e.target.value)}
+                    className="finance-input w-full pl-11"
+                    placeholder={guestHasAccount ? 'maria ou maria@email.com' : 'ex: maria.silva'}
+                    autoComplete="username"
                   />
                 </div>
+                {!guestHasAccount && (
+                  <p className="text-[11px] text-slate-400 mt-1 text-left">
+                    Pode ser um apelido (vira login automático) ou um e-mail real.
+                  </p>
+                )}
               </div>
-              <button type="submit" disabled={loading} className="finance-btn-primary w-full py-3.5 disabled:opacity-50">
+
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">Senha</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={guestPassword}
+                  onChange={(e) => setGuestPassword(e.target.value)}
+                  className="finance-input w-full"
+                  placeholder="mínimo 6 caracteres"
+                  autoComplete={guestHasAccount ? 'current-password' : 'new-password'}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="finance-btn-primary w-full py-3.5 disabled:opacity-50"
+              >
                 {loading
-                  ? 'Acessando...'
-                  : user
-                    ? 'Entrar na conta compartilhada'
-                    : 'Continuar com o código'}
+                  ? 'Aguarde...'
+                  : guestHasAccount
+                    ? 'Entrar como convidado'
+                    : 'Cadastrar e entrar'}
               </button>
-              <p className="text-xs text-slate-400 text-left">
-                Dica: no Supabase, ative <strong>Authentication → Providers → Anonymous</strong> para
-                convidados sem e-mail. Ou faça login com e-mail e use o código depois.
-              </p>
+
               <button
                 type="button"
                 onClick={() => {
                   setIsGuestMode(false);
                   setError('');
+                  setGuestLoginHint('');
                 }}
                 className="w-full py-2 text-sm text-slate-400 hover:text-[#5b4cdb]"
               >
-                Voltar para login
+                Voltar para login do dono
               </button>
             </motion.form>
           ) : (
@@ -320,6 +462,24 @@ export default function Login() {
               exit={{ opacity: 0, x: -12 }}
             >
               <form onSubmit={handleSubmit} className="space-y-4 mb-5">
+                {!isLogin && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                      Seu nome
+                    </label>
+                    <div className="relative">
+                      <User size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={ownerDisplayName}
+                        onChange={(e) => setOwnerDisplayName(e.target.value)}
+                        className="finance-input w-full pl-11"
+                        placeholder="Como quer ser chamado"
+                        autoComplete="name"
+                      />
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">E-mail</label>
                   <div className="relative">

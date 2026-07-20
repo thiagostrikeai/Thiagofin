@@ -24,12 +24,14 @@ type ChartMode = 'income' | 'expenses';
 type Period = 'day' | 'week' | 'month' | 'year';
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, isGuest, permission } = useAuth();
   const { theme, dashboardConfig, currency } = useAppStore();
   const { bills } = useBillsData();
   const { goals } = useGoalsData();
   const [chartMode, setChartMode] = useState<ChartMode>('expenses');
   const [period, setPeriod] = useState<Period>('month');
+  const firstName =
+    user?.displayName?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuário';
 
   const isPaidThisMonth = (bill: Bill) => {
     if (!bill.history?.length) return false;
@@ -121,8 +123,15 @@ export default function Dashboard() {
       <div className="text-center md:text-left md:flex md:items-end md:justify-between">
         <div>
           <p className={`text-sm font-medium ${muted}`}>
-            Olá, {user?.displayName?.split(' ')[0] || 'Usuário'}
+            Olá, {firstName}
+            {isGuest ? ' 👋' : ''}
           </p>
+          {isGuest && (
+            <p className={`text-xs mt-0.5 font-medium ${theme.isDarkMode ? 'text-orange-300' : 'text-orange-500'}`}>
+              Convidado{user?.displayName ? `: ${user.displayName}` : ''} ·{' '}
+              {permission === 'edit' ? 'pode editar' : 'somente visualização'}
+            </p>
+          )}
           <p className={`text-sm mt-1 ${muted}`}>Saldo total</p>
           <h1 className={`text-4xl md:text-5xl font-bold tracking-tight mt-1 ${ink}`}>
             {formatCurrency(chartMode === 'expenses' ? balance : totalTarget, currency)}
