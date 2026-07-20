@@ -1,20 +1,33 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# FinTrack
 
-# Run and deploy your AI Studio app
+App de gestão financeira (contas recorrentes, gastos, metas e lembretes).
 
-This contains everything you need to run your app locally.
+**Stack:** React + Vite + TypeScript · **Supabase** (Auth + PostgreSQL) · deploy **Netlify**
 
-View your app in AI Studio: https://ai.studio/apps/a9ee1025-aa43-4ecd-878d-94d1a3361583
+## Início rápido
 
-## Run Locally
+```bash
+npm install
+cp .env.example .env   # preencha URL e anon key do Supabase
+npm run dev
+```
 
-**Prerequisites:**  Node.js
+Guia completo de Supabase + Netlify: **[DEPLOY.md](./DEPLOY.md)**  
+Schema SQL: **[supabase/schema.sql](./supabase/schema.sql)**
 
+## Scripts
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+| Comando | Descrição |
+|---------|-----------|
+| `npm run dev` | Desenvolvimento em http://localhost:3000 |
+| `npm run build` | Build de produção (`dist/`) |
+| `npm run preview` | Preview do build |
+| `npm run lint` | Typecheck |
+
+## Recursos
+
+- Contas recorrentes com dia de vencimento e aviso
+- Lembretes no app + Google/Apple Calendar
+- Metas de gasto, dashboard e gráficos
+- Convites de convidado (view/edit)
+- Modo Local (sem backend) para testes de UI

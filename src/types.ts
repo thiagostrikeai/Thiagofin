@@ -5,6 +5,11 @@ export interface Bill {
   warningDays: number;
   history: PaymentHistory[];
   createdAt: number;
+  /** Conta se repete todo mês no mesmo dia de vencimento */
+  isRecurring?: boolean;
+  /** Usuário pediu lembrete por e-mail / calendário */
+  emailReminderEnabled?: boolean;
+  amountEstimate?: number;
 }
 
 export interface PaymentHistory {

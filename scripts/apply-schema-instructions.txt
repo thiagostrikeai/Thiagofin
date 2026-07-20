@@ -1,0 +1,21 @@
+APLICAR SCHEMA NO SUPABASE (obrigatório — 2 minutos)
+=====================================================
+
+1. Abra este link (projeto cybskvwnxejfhxfeibzv):
+   https://supabase.com/dashboard/project/cybskvwnxejfhxfeibzv/sql/new
+
+2. Abra o arquivo:
+   C:\Users\epthi\Thiagofin\supabase\schema.sql
+
+3. Copie TODO o conteúdo → cole no SQL Editor → clique RUN
+
+4. Authentication → Providers → ative "Email"
+   (opcional: Google, Anonymous para convidados)
+
+5. Authentication → URL Configuration:
+   Site URL: http://localhost:3000
+   Redirect URLs:
+     - http://localhost:3000/login
+     - https://*.netlify.app/login
+
+Depois disso o app já salva contas/metas no Supabase.

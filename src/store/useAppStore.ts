@@ -22,7 +22,8 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   theme: {
-    primaryColor: '#6366f1', // indigo-500
+    // Matches finance-application-design.png palette
+    primaryColor: '#5b4cdb',
     isDarkMode: false,
   },
   dashboardConfig: {

@@ -1,21 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { billsRef, updatePayment, deletePayment } from '../lib/db';
 import { Bill, PaymentHistory } from '../types';
-import { onSnapshot, query } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { PieChart, Pie, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { Calendar as CalendarIcon, Edit2, Trash2, X, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatCurrency } from '../utils/currency';
+import { useBillsData } from '../hooks/useBillsData';
 
-const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+const COLORS = ['#5b4cdb', '#ff6b35', '#60a5fa', '#f59e0b', '#a78bfa', '#f472b6', '#34d399', '#fbbf24'];
 
 export default function Expenses() {
-  const { user, targetUserId, permission } = useAuth();
   const { theme, currency } = useAppStore();
-  const [bills, setBills] = useState<Bill[]>([]);
+  const { bills, permission, user, updatePayment, deletePayment } = useBillsData();
   
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -23,20 +20,10 @@ export default function Expenses() {
   const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i);
 
-  // Edit Payment State
   const [editingPayment, setEditingPayment] = useState<{billId: string, payment: PaymentHistory, bill: Bill} | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editDate, setEditDate] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!targetUserId) return;
-    const q = query(billsRef(targetUserId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setBills(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bill)));
-    });
-    return () => unsubscribe();
-  }, [user]);
 
   // Data processing
   const getPaymentsForMonth = (m: number, y: number) => {
@@ -84,12 +71,11 @@ export default function Expenses() {
     setIsSubmitting(true);
     try {
       await updatePayment(
-        targetUserId, 
         editingPayment.billId, 
         editingPayment.payment.id, 
         amount, 
-        new Date(editDate).getTime(),
-        editingPayment.bill.history
+        new Date(editDate + 'T12:00:00').getTime(),
+        editingPayment.bill.history || []
       );
       setEditingPayment(null);
     } finally {
@@ -99,20 +85,20 @@ export default function Expenses() {
 
   const handleDeletePayment = async (billId: string, paymentId: string, history: PaymentHistory[]) => {
     if (!user || !confirm('Deseja excluir este lançamento?')) return;
-    await deletePayment(targetUserId, billId, paymentId, history);
+    await deletePayment(billId, paymentId, history);
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Gastos e Lançamentos</h1>
-          <p className={`${theme.isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <h1 className="text-3xl font-bold tracking-tight mb-1">Gastos e Lançamentos</h1>
+          <p className={`${theme.isDarkMode ? 'text-slate-400' : 'text-slate-400'}`}>
             Visualize e gerencie seus gastos detalhados
           </p>
         </div>
         
-        <div className={`p-4 rounded-2xl flex items-center gap-4 ${theme.isDarkMode ? 'bg-[#13131f]/80 backdrop-blur-xl border border-white/5 shadow-lg shadow-indigo-500/5' : 'bg-white shadow-sm border border-slate-100'} transition-all`}>
+        <div className={`p-4 rounded-2xl flex items-center gap-4 ${theme.isDarkMode ? 'bg-[#1a1830]/90 border border-white/5' : 'finance-card'} transition-all`}>
           <div className="flex items-center gap-2 font-medium">
             <div className="p-2 rounded-xl" style={{ backgroundColor: `${theme.primaryColor}20`, color: theme.primaryColor }}>
               <CalendarIcon size={20} />
@@ -141,7 +127,7 @@ export default function Expenses() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`p-6 rounded-3xl ${theme.isDarkMode ? 'bg-[#13131f]/80 backdrop-blur-xl border border-white/5 shadow-2xl shadow-indigo-500/5' : 'bg-white shadow-xl shadow-slate-200/50 border border-slate-100'} transition-all`}
+          className={`p-6 rounded-3xl ${theme.isDarkMode ? 'bg-[#1a1830]/90 border border-white/5' : 'finance-card'} transition-all`}
         >
           <h2 className="text-xl font-bold mb-6">Gastos por Conta ({months[selectedMonth]})</h2>
           <div className="h-64">
@@ -180,7 +166,7 @@ export default function Expenses() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className={`p-6 rounded-3xl ${theme.isDarkMode ? 'bg-[#13131f]/80 backdrop-blur-xl border border-white/5 shadow-2xl shadow-purple-500/5' : 'bg-white shadow-xl shadow-slate-200/50 border border-slate-100'} transition-all`}
+          className={`p-6 rounded-3xl ${theme.isDarkMode ? 'bg-[#1a1830]/90 border border-white/5' : 'finance-card'} transition-all`}
         >
           <h2 className="text-xl font-bold mb-6">Evolução Mensal ({selectedYear})</h2>
           <div className="h-64">
@@ -208,7 +194,7 @@ export default function Expenses() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className={`p-6 rounded-3xl ${theme.isDarkMode ? 'bg-[#13131f]/80 backdrop-blur-xl border border-white/5 shadow-2xl shadow-indigo-500/5' : 'bg-white shadow-xl shadow-slate-200/50 border border-slate-100'} overflow-hidden transition-all`}
+        className={`p-6 rounded-3xl ${theme.isDarkMode ? 'bg-[#1a1830]/90 border border-white/5' : 'finance-card'} overflow-hidden transition-all`}
       >
         <h2 className="text-xl font-bold mb-6">Lançamentos ({months[selectedMonth]} {selectedYear})</h2>
         <div className="overflow-x-auto">
@@ -231,7 +217,7 @@ export default function Expenses() {
                   >
                     <td className="py-4 px-4 whitespace-nowrap">{format(new Date(payment.datePaid), 'dd/MM/yyyy')}</td>
                     <td className="py-4 px-4 font-medium whitespace-nowrap">{bill.name}</td>
-                    <td className="py-4 px-4 text-right whitespace-nowrap font-medium text-indigo-500 dark:text-indigo-400">{formatCurrency(payment.amount, currency)}</td>
+                    <td className="py-4 px-4 text-right whitespace-nowrap font-semibold text-[#ff6b35]">{formatCurrency(payment.amount, currency)}</td>
                     <td className="py-4 px-4 text-center flex justify-center gap-2">
                       {permission === 'edit' && (
                         <>

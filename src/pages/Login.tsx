@@ -1,13 +1,45 @@
 import { useAuth } from '../contexts/AuthContext';
-import { Wallet, LogIn, Mail, Key } from 'lucide-react';
-import { motion } from 'motion/react';
-import { useAppStore } from '../store/useAppStore';
+import { LogIn, Key, Monitor, Mail, ArrowRight, Wallet } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import React, { useState } from 'react';
 
+function mapAuthError(err: { code?: string; message?: string; status?: number }, fallback: string): string {
+  const msg = (err.message || '').toLowerCase();
+  if (msg.includes('supabase não configurado') || msg.includes('not configur')) {
+    return 'Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no .env / Netlify.';
+  }
+  if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials')) {
+    return 'E-mail ou senha incorretos.';
+  }
+  if (msg.includes('user already registered') || msg.includes('already been registered')) {
+    return 'Este e-mail já está em uso. Tente fazer login.';
+  }
+  if (msg.includes('email not confirmed')) {
+    return 'Confirme seu e-mail antes de entrar (verifique a caixa de entrada).';
+  }
+  if (msg.includes('provider is not enabled') || msg.includes('unsupported provider')) {
+    return 'Este provedor não está ativo no Supabase (Authentication → Providers).';
+  }
+  if (msg.includes('anonymous')) {
+    return 'Login anônimo desativado. Ative Anonymous no Supabase ou use e-mail.';
+  }
+  return fallback + (err.message ? ` (${err.message})` : '');
+}
+
 export default function Login() {
-  const { signInWithGoogle, signInWithApple, signInWithEmail, signUpWithEmail, signInAsGuest, authError } = useAuth();
-  const theme = useAppStore(state => state.theme);
-  
+  const {
+    signInWithGoogle,
+    signInWithApple,
+    signInWithEmail,
+    signUpWithEmail,
+    signInAsGuest,
+    acceptInviteCode,
+    signInLocal,
+    authError,
+    user,
+  } = useAuth();
+
+  const [showForm, setShowForm] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [email, setEmail] = useState('');
@@ -16,20 +48,21 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const isDev = import.meta.env.DEV;
+
   React.useEffect(() => {
+    // Use "invite" (not "code") — "code" is reserved for Supabase OAuth PKCE
     const params = new URLSearchParams(window.location.search);
-    const codeParam = params.get('code');
-    if (codeParam && codeParam.length === 6) {
+    const invite = params.get('invite') || params.get('guest');
+    if (invite && invite.length === 6) {
+      setShowForm(true);
       setIsGuestMode(true);
-      setGuestCode(codeParam);
+      setGuestCode(invite);
     }
   }, []);
 
-  // Set local error if authError from context changes
   React.useEffect(() => {
-    if (authError) {
-      setError(authError);
-    }
+    if (authError) setError(authError);
   }, [authError]);
 
   const handleGoogleSignIn = async () => {
@@ -39,11 +72,7 @@ export default function Login() {
       await signInWithGoogle();
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('O provedor de login do Google não está ativado no Firebase Console.');
-      } else {
-        setError('Erro: ' + err.message);
-      }
+      setError(mapAuthError(err, 'Erro ao entrar com Google.'));
       setLoading(false);
     }
   };
@@ -55,30 +84,42 @@ export default function Login() {
       await signInWithApple();
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('O provedor de login da Apple não está ativado no Firebase Console.');
-      } else {
-        setError('Ocorreu um erro ao fazer login com a Apple.');
-      }
+      setError(mapAuthError(err, 'Erro ao entrar com Apple.'));
+      setLoading(false);
+    }
+  };
+
+  const handleLocalSignIn = async () => {
+    try {
+      setError('');
+      setLoading(true);
+      await signInLocal();
+    } catch (err: any) {
+      console.error(err);
+      setError('Não foi possível entrar no modo local.');
       setLoading(false);
     }
   };
 
   const handleGuestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!guestCode || guestCode.length !== 6) {
+    const clean = guestCode.replace(/\D/g, '');
+    if (clean.length !== 6) {
       setError('Por favor, insira um código de 6 dígitos válido.');
       return;
     }
-    
     setError('');
     setLoading(true);
-    
     try {
-      await signInAsGuest(guestCode);
-    } catch (err: any) {
+      // Se já está logado com e-mail, só vincula o convite (não cria anônimo)
+      if (user && user.email && !user.email.includes('local@')) {
+        await acceptInviteCode(clean);
+      } else {
+        await signInAsGuest(clean);
+      }
+    } catch (err: unknown) {
       console.error(err);
-      setError('Código inválido ou expirado. Verifique e tente novamente.');
+      setError(err instanceof Error ? err.message : 'Código inválido. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -88,180 +129,302 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    
     try {
-      if (isLogin) {
-        await signInWithEmail(email, password);
-      } else {
-        await signUpWithEmail(email, password);
-      }
+      if (isLogin) await signInWithEmail(email, password);
+      else await signUpWithEmail(email, password);
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setError('E-mail ou senha incorretos.');
-      } else if (err.code === 'auth/email-already-in-use') {
-        setError('Este e-mail já está em uso. Tente fazer login em vez de cadastrar.');
-        setIsLogin(true); // Automatically switch to login mode
-      } else if (err.code === 'auth/weak-password') {
+      const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('password') && msg.includes('6')) {
         setError('A senha deve ter pelo menos 6 caracteres.');
-      } else if (err.code === 'auth/operation-not-allowed') {
-        setError('Login por e-mail e senha não está ativado no Firebase Console. Por favor, ative-o nas configurações de Authentication.');
+      } else if (msg.includes('already registered')) {
+        setError('Este e-mail já está em uso.');
+        setIsLogin(true);
       } else {
-        setError('Ocorreu um erro. Verifique se o provedor está ativado no Firebase ou tente novamente.');
+        setError(mapAuthError(err, 'Ocorreu um erro. Verifique o Supabase ou use Modo Local.'));
       }
     } finally {
       setLoading(false);
     }
   };
 
+  /* ── Welcome / splash (phone 1 in the reference) ── */
+  if (!showForm) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-[#f3f0ff]">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative w-full max-w-md overflow-hidden rounded-[2.5rem] shadow-2xl shadow-indigo-500/30"
+          style={{
+            background: 'linear-gradient(165deg, #5b4cdb 0%, #4338ca 45%, #312e81 100%)',
+            minHeight: 560,
+          }}
+        >
+          {/* Decorative geometric shapes */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-10 left-8 w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-b-[20px] border-b-orange-400 rotate-12 opacity-90" />
+            <div className="absolute top-16 right-12 w-3 h-3 rounded-full bg-orange-400" />
+            <div className="absolute top-28 left-1/3 w-2.5 h-2.5 rotate-45 bg-sky-300" />
+            <div className="absolute top-24 right-1/4 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-b-[14px] border-b-violet-300 -rotate-45" />
+            <div className="absolute bottom-48 left-6 w-8 h-8 rounded-full border-2 border-white/20" />
+            <div className="absolute bottom-56 right-10 w-4 h-4 rounded-full bg-cyan-300/40" />
+            {/* Leaf / plant silhouettes */}
+            <svg
+              className="absolute bottom-0 left-0 w-full h-72 opacity-40"
+              viewBox="0 0 400 300"
+              fill="none"
+            >
+              <ellipse cx="80" cy="260" rx="50" ry="90" fill="#60a5fa" transform="rotate(-25 80 260)" />
+              <ellipse cx="140" cy="240" rx="55" ry="100" fill="#3b82f6" transform="rotate(10 140 240)" />
+              <ellipse cx="200" cy="250" rx="48" ry="95" fill="#60a5fa" transform="rotate(-15 200 250)" />
+              <ellipse cx="260" cy="235" rx="52" ry="105" fill="#2563eb" transform="rotate(20 260 235)" />
+              <ellipse cx="320" cy="255" rx="45" ry="88" fill="#3b82f6" transform="rotate(-5 320 255)" />
+            </svg>
+            {/* Coin icons */}
+            {[
+              { x: '12%', y: '58%' },
+              { x: '28%', y: '72%' },
+              { x: '55%', y: '62%' },
+              { x: '72%', y: '70%' },
+            ].map((pos, i) => (
+              <div
+                key={i}
+                className="absolute w-10 h-10 rounded-full bg-white/15 border border-white/30 flex items-center justify-center text-white/80 text-sm font-bold backdrop-blur-sm"
+                style={{ left: pos.x, top: pos.y }}
+              >
+                $
+              </div>
+            ))}
+          </div>
+
+          <div className="relative z-10 flex flex-col items-center justify-center text-center px-10 pt-24 pb-10 min-h-[560px]">
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="mb-6 w-16 h-16 rounded-3xl bg-white/15 border border-white/25 flex items-center justify-center backdrop-blur-md"
+            >
+              <Wallet size={32} className="text-white" />
+            </motion.div>
+            <h1 className="text-4xl font-bold text-white tracking-tight mb-3">Finance App</h1>
+            <p className="text-white/70 text-sm leading-relaxed max-w-[240px] mb-10">
+              Gerencie gastos, contas e metas com segurança e clareza.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setShowForm(true)}
+              className="absolute bottom-0 right-0 w-36 h-20 rounded-tl-[2.5rem] bg-[#ff6b35] text-white font-bold text-lg flex items-center justify-center gap-2 hover:bg-orange-500 transition-colors shadow-lg shadow-orange-500/30"
+            >
+              Start
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  /* ── Auth form card ── */
   return (
-    <div className={`min-h-screen flex items-center justify-center p-4 transition-colors duration-300 ${theme.isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
-      <motion.div 
+    <div className="min-h-screen flex items-center justify-center p-4 bg-[#f3f0ff]">
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`max-w-md w-full rounded-2xl shadow-xl p-8 text-center ${theme.isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'}`}
+        className="w-full max-w-md finance-card p-8"
       >
-        <div className="flex justify-center mb-6">
-          <div 
-            className="p-4 rounded-full" 
-            style={{ backgroundColor: `${theme.primaryColor}20`, color: theme.primaryColor }}
+        <div className="flex justify-center mb-5">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-500/30"
+            style={{ background: 'linear-gradient(135deg, #5b4cdb, #4338ca)' }}
           >
-            <Wallet size={48} />
+            <Wallet size={28} />
           </div>
         </div>
-        <h1 className="text-3xl font-bold mb-2">FinTrack</h1>
-        <p className={`mb-6 ${theme.isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-          {isGuestMode ? 'Acesse o aplicativo compartilhado' : (isLogin ? 'Faça login para continuar' : 'Crie sua conta para começar')}
+        <h1 className="text-2xl font-bold text-center text-[#1e1b4b] mb-1">FinTrack</h1>
+        <p className="text-center text-slate-400 text-sm mb-6">
+          {isGuestMode
+            ? 'Acesse o aplicativo compartilhado'
+            : isLogin
+              ? 'Faça login para continuar'
+              : 'Crie sua conta para começar'}
         </p>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-600 rounded-lg text-sm">
+          <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-2xl text-sm border border-red-100">
             {error}
           </div>
         )}
 
-        {isGuestMode ? (
-          <form onSubmit={handleGuestSubmit} className="space-y-4 mb-6 text-left">
-            <div>
-              <label className="block text-sm font-medium mb-1">Código do Convite</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                  <Key size={18} />
+        <AnimatePresence mode="wait">
+          {isGuestMode ? (
+            <motion.form
+              key="guest"
+              initial={{ opacity: 0, x: 12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              onSubmit={handleGuestSubmit}
+              className="space-y-4"
+            >
+              <p className="text-sm text-slate-500 text-left">
+                Digite o código de 6 dígitos gerado pelo dono da conta. Várias pessoas podem usar o
+                mesmo código. A permissão (só ver ou editar) é definida por quem convidou.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                  Código do Convite
+                </label>
+                <div className="relative">
+                  <Key size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    maxLength={6}
+                    value={guestCode}
+                    onChange={(e) => setGuestCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="finance-input w-full pl-11 text-center text-2xl tracking-[0.35em] font-mono"
+                    placeholder="123456"
+                    autoComplete="one-time-code"
+                  />
                 </div>
-                <input
-                  type="text"
-                  required
-                  maxLength={6}
-                  value={guestCode}
-                  onChange={(e) => setGuestCode(e.target.value.replace(/\D/g, ''))}
-                  className={`w-full pl-10 p-3 rounded-lg border text-center text-2xl tracking-widest font-mono focus:ring-2 outline-none ${theme.isDarkMode ? 'bg-gray-700 border-gray-600 focus:ring-indigo-500' : 'bg-gray-50 border-gray-300 focus:ring-indigo-500'}`}
-                  placeholder="123456"
-                />
               </div>
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: theme.primaryColor }}
+              <button type="submit" disabled={loading} className="finance-btn-primary w-full py-3.5 disabled:opacity-50">
+                {loading
+                  ? 'Acessando...'
+                  : user
+                    ? 'Entrar na conta compartilhada'
+                    : 'Continuar com o código'}
+              </button>
+              <p className="text-xs text-slate-400 text-left">
+                Dica: no Supabase, ative <strong>Authentication → Providers → Anonymous</strong> para
+                convidados sem e-mail. Ou faça login com e-mail e use o código depois.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsGuestMode(false);
+                  setError('');
+                }}
+                className="w-full py-2 text-sm text-slate-400 hover:text-[#5b4cdb]"
+              >
+                Voltar para login
+              </button>
+            </motion.form>
+          ) : (
+            <motion.div
+              key="auth"
+              initial={{ opacity: 0, x: 12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
             >
-              {loading ? 'Acessando...' : 'Acessar'}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIsGuestMode(false); setError(''); }}
-              className={`w-full py-2 text-sm font-medium hover:underline ${theme.isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
-            >
-              Voltar para Login normal
-            </button>
-          </form>
-        ) : (
-          <>
-            <form onSubmit={handleSubmit} className="space-y-4 mb-6 text-left">
-              <div>
-                <label className="block text-sm font-medium mb-1">E-mail</label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full p-3 rounded-lg border focus:ring-2 outline-none ${theme.isDarkMode ? 'bg-gray-700 border-gray-600 focus:ring-indigo-500' : 'bg-gray-50 border-gray-300 focus:ring-indigo-500'}`}
-                  placeholder="seu@email.com"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Senha</label>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full p-3 rounded-lg border focus:ring-2 outline-none ${theme.isDarkMode ? 'bg-gray-700 border-gray-600 focus:ring-indigo-500' : 'bg-gray-50 border-gray-300 focus:ring-indigo-500'}`}
-                  placeholder="••••••"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 rounded-xl font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: theme.primaryColor }}
-              >
-                {loading ? 'Aguarde...' : (isLogin ? 'Entrar' : 'Cadastrar')}
-              </button>
-            </form>
+              <form onSubmit={handleSubmit} className="space-y-4 mb-5">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">E-mail</label>
+                  <div className="relative">
+                    <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="finance-input w-full pl-11"
+                      placeholder="seu@email.com"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Senha</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="finance-input w-full"
+                    placeholder="••••••"
+                  />
+                </div>
+                <button type="submit" disabled={loading} className="finance-btn-primary w-full py-3.5 disabled:opacity-50">
+                  {loading ? 'Aguarde...' : isLogin ? 'Entrar' : 'Cadastrar'}
+                </button>
+              </form>
 
-            <div className="flex items-center justify-between mb-6">
-              <hr className={`flex-1 ${theme.isDarkMode ? 'border-gray-700' : 'border-gray-300'}`} />
-              <span className={`px-3 text-sm ${theme.isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>ou continuar com</span>
-              <hr className={`flex-1 ${theme.isDarkMode ? 'border-gray-700' : 'border-gray-300'}`} />
-            </div>
+              <div className="flex items-center gap-3 mb-5">
+                <hr className="flex-1 border-slate-200" />
+                <span className="text-xs text-slate-400">ou continuar com</span>
+                <hr className="flex-1 border-slate-200" />
+              </div>
 
-            <div className="space-y-4 mb-6">
+              <div className="space-y-3 mb-4">
+                <button
+                  onClick={handleGoogleSignIn}
+                  disabled={loading}
+                  type="button"
+                  className="w-full flex items-center justify-center gap-3 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 font-medium py-3 px-4 rounded-2xl transition-colors disabled:opacity-50"
+                >
+                  <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+                  Entrar com Google
+                </button>
+                <button
+                  onClick={handleAppleSignIn}
+                  disabled={loading}
+                  type="button"
+                  className="w-full flex items-center justify-center gap-3 bg-[#1e1b4b] text-white hover:bg-[#2e2a5a] font-medium py-3 px-4 rounded-2xl transition-colors disabled:opacity-50"
+                >
+                  <LogIn size={18} />
+                  Entrar com Apple
+                </button>
+              </div>
+
+              {isDev && (
+                <button
+                  onClick={handleLocalSignIn}
+                  disabled={loading}
+                  type="button"
+                  className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-orange-300 bg-orange-50 hover:bg-orange-100 text-orange-700 font-medium py-3 px-4 rounded-2xl mb-4 disabled:opacity-50"
+                >
+                  <Monitor size={18} />
+                  Continuar em Modo Local
+                </button>
+              )}
+
               <button
-                onClick={handleGoogleSignIn}
-                disabled={loading}
+                onClick={() => {
+                  setIsGuestMode(true);
+                  setError('');
+                }}
                 type="button"
-                className="w-full flex items-center justify-center gap-3 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 font-medium py-3 px-4 rounded-xl transition-colors disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 text-sm font-medium p-3 rounded-2xl bg-[#ece9ff] text-[#5b4cdb]"
               >
-                <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-                Entrar com Google
-              </button>
-              <button
-                onClick={handleAppleSignIn}
-                disabled={loading}
-                type="button"
-                className="w-full flex items-center justify-center gap-3 bg-black text-white hover:bg-gray-800 font-medium py-3 px-4 rounded-xl transition-colors disabled:opacity-50"
-              >
-                <LogIn size={20} />
-                Entrar com Apple
-              </button>
-            </div>
-            
-            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={() => { setIsGuestMode(true); setError(''); }}
-                type="button"
-                className="w-full flex items-center justify-center gap-2 text-sm font-medium p-3 rounded-xl transition-colors"
-                style={{ color: theme.primaryColor, backgroundColor: `${theme.primaryColor}10` }}
-              >
-                <Key size={18} />
+                <Key size={16} />
                 Convidado? Acesse aqui
               </button>
-            </div>
 
-            <p className={`mt-6 text-sm ${theme.isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-              {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}{' '}
+              <p className="mt-5 text-center text-sm text-slate-400">
+                {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}{' '}
+                <button
+                  onClick={() => {
+                    setIsLogin(!isLogin);
+                    setError('');
+                  }}
+                  className="font-semibold text-[#5b4cdb] hover:underline"
+                  type="button"
+                >
+                  {isLogin ? 'Cadastrar' : 'Entrar'}
+                </button>
+              </p>
+
               <button
-                onClick={() => { setIsLogin(!isLogin); setError(''); }}
-                className="font-medium hover:underline"
-                style={{ color: theme.primaryColor }}
                 type="button"
+                onClick={() => setShowForm(false)}
+                className="mt-3 w-full text-xs text-slate-400 hover:text-[#5b4cdb]"
               >
-                {isLogin ? 'Cadastrar' : 'Entrar'}
+                ← Voltar à tela inicial
               </button>
-            </p>
-          </>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );

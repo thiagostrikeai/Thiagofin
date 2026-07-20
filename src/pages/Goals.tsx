@@ -1,37 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { addGoal, deleteGoal, updateGoalAmount, goalsRef } from '../lib/db';
-import { Goal } from '../types';
-import { onSnapshot } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Trash2, X, Target, Bell } from 'lucide-react';
+import { Plus, Trash2, X, Bell } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { formatCurrency } from '../utils/currency';
+import { useGoalsData } from '../hooks/useGoalsData';
 
 export default function Goals() {
-  const { user, targetUserId, permission } = useAuth();
   const { theme, currency } = useAppStore();
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const {
+    goals,
+    permission,
+    user,
+    addGoal,
+    updateGoalAmount,
+    deleteGoal,
+  } = useGoalsData();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [goalToDelete, setGoalToDelete] = useState<string | null>(null);
+  const [formError, setFormError] = useState('');
   
-  // Add Goal Form State
   const [newGoalName, setNewGoalName] = useState('');
   const [newGoalTarget, setNewGoalTarget] = useState('');
-
-  useEffect(() => {
-    if (!targetUserId) return;
-    const unsubscribe = onSnapshot(goalsRef(targetUserId), (snapshot) => {
-      const goalsData: Goal[] = [];
-      snapshot.forEach((doc) => {
-        goalsData.push({ id: doc.id, ...doc.data() } as Goal);
-      });
-      setGoals(goalsData);
-    });
-    return () => unsubscribe();
-  }, [user]);
 
   const handleAddGoal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,9 +31,10 @@ export default function Goals() {
     if (isNaN(targetAmount)) return;
     
     setIsSubmitting(true);
+    setFormError('');
     try {
       const today = new Date();
-      await addGoal(targetUserId, {
+      await addGoal({
         name: newGoalName,
         targetAmount,
         currentAmount: 0,
@@ -53,22 +45,21 @@ export default function Goals() {
       setIsAddModalOpen(false);
       setNewGoalName('');
       setNewGoalTarget('');
+    } catch (err) {
+      console.error(err);
+      setFormError(err instanceof Error ? err.message : 'Erro ao salvar meta.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleUpdateAmount = async (id: string, currentAmount: number, target: number) => {
-    if (!targetUserId) return;
-    // Note: prompt might be blocked in iframes, but since we're fixing just the ones requested, this is okay.
-    // If prompt is blocked, we can't use it. We should replace prompt as well!
     const amountStr = prompt(`Novo valor gasto (${currency}):`, currentAmount.toString());
     if (amountStr) {
       const amount = parseFloat(amountStr.replace(',', '.'));
       if (!isNaN(amount)) {
-        await updateGoalAmount(targetUserId, id, amount);
+        await updateGoalAmount(id, amount);
         if (amount > target) {
-          // Simulate notification
           alert(`⚠️ Atenção! Você estourou o teto da meta!`);
         }
       }
@@ -83,16 +74,15 @@ export default function Goals() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Metas de Gastos</h1>
-          <p className={`${theme.isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Acompanhe o teto de seus gastos</p>
+          <h1 className="text-3xl font-bold tracking-tight">Metas de Gastos</h1>
+          <p className={`${theme.isDarkMode ? 'text-slate-400' : 'text-slate-400'}`}>Acompanhe o teto de seus gastos</p>
         </div>
         {permission === 'edit' && (
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: theme.primaryColor }}
+            className="finance-btn-primary flex items-center gap-2 px-5 py-2.5"
           >
-            <Plus size={20} />
+            <Plus size={18} />
             Nova Meta
           </button>
         )}
@@ -117,7 +107,7 @@ export default function Goals() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 whileHover={{ y: -5, scale: 1.02 }}
-                className={`p-6 rounded-3xl ${theme.isDarkMode ? 'bg-[#13131f]/80 backdrop-blur-xl border border-white/5 shadow-2xl shadow-indigo-500/5' : 'bg-white shadow-xl shadow-slate-200/50 border border-slate-100'} relative transition-all`}
+                className={`p-6 ${theme.isDarkMode ? 'bg-[#1a1830]/90 border border-white/5 rounded-3xl' : 'finance-card'} relative transition-all`}
               >
                 <div className="flex justify-between items-start mb-6">
                   <div>
@@ -212,6 +202,9 @@ export default function Goals() {
                 <button onClick={() => setIsAddModalOpen(false)} className={`p-2 rounded-xl transition-colors ${theme.isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}><X size={20} /></button>
               </div>
               <form onSubmit={handleAddGoal} className="space-y-5">
+                {formError && (
+                  <div className="p-3 bg-red-50 text-red-600 rounded-xl text-sm">{formError}</div>
+                )}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Categoria / Nome</label>
                   <input
@@ -238,8 +231,7 @@ export default function Goals() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-3 rounded-lg font-bold text-white transition-opacity hover:opacity-90 mt-4 disabled:opacity-50"
-                  style={{ backgroundColor: theme.primaryColor }}
+                  className="finance-btn-primary w-full py-3.5 mt-4 disabled:opacity-50"
                 >
                   {isSubmitting ? 'Salvando...' : 'Salvar Meta'}
                 </button>
@@ -274,9 +266,12 @@ export default function Goals() {
                   onClick={async () => {
                     if (user && goalToDelete) {
                       setIsSubmitting(true);
-                      await deleteGoal(targetUserId, goalToDelete);
-                      setGoalToDelete(null);
-                      setIsSubmitting(false);
+                      try {
+                        await deleteGoal(goalToDelete);
+                        setGoalToDelete(null);
+                      } finally {
+                        setIsSubmitting(false);
+                      }
                     }
                   }}
                   disabled={isSubmitting}
