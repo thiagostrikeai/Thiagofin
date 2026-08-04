@@ -1,0 +1,27 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 12 */3 * *'   # a cada 3 dias, 12h UTC (bem dentro da janela de 7 dias do free tier)
+  workflow_dispatch:          # permite rodar manualmente pelo GitHub também
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase (bills table)
+        run: |
+          HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/bills?select=id&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+
+          echo "Status HTTP: $HTTP_STATUS"
+          cat /tmp/response.json
+
+          if [ "$HTTP_STATUS" -ge 400 ]; then
+            echo "Ping falhou com status $HTTP_STATUS"
+            exit 1
+          fi
+
+          echo "Ping OK - projeto Supabase mantido ativo"
